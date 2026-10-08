@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Band, Branch, BranchDetail, Operation, Repo, RepoInfo, Show, Tab, Theme } from '../types'
+import type { Band, Branch, BranchDetail, Operation, Repo, RepoInfo, Show, Stash, Tab, Theme } from '../types'
 import {
   BRANCH_FORMAT,
   LOG_FORMAT,
+  STASH_FORMAT,
   TAG_FORMAT,
   ago,
   baseName,
@@ -17,6 +18,7 @@ import {
   parseLeftRight,
   parseLog,
   parseRemotes,
+  parseStashes,
   parseStatus,
   parseTags,
   parseWorktrees,
@@ -32,8 +34,11 @@ type Engine = EngineInterface
 const PANE = 'git-status'
 const TITLE = 'Git status'
 const COMMAND = 'git-status'
-// How often the summary re-reads the repo, for changes made outside this session.
-const POLL_MS = 15000
+// How often the summary re-reads the repo, for changes made outside this session:
+// every 15 s while things change, doubling up to every 4 min while nothing does.
+// Claude's tool calls and turns bring it back to 15 s.
+const POLL_MIN_MS = 15000
+const POLL_MAX_MS = 240000
 // Lists are capped: a desktop pane past ~300 rows stops redrawing and its buttons go dead.
 const LOG_COUNT = 60
 const TAG_COUNT = 50
@@ -72,6 +77,7 @@ const TABS: readonly { value: Tab; label: string }[] = [
   { value: 'history', label: 'History' },
   { value: 'tags', label: 'Tags' },
   { value: 'worktrees', label: 'Worktrees' },
+  { value: 'stashes', label: 'Stashes' },
 ]
 
 // --- git, read-only ----------------------------------------------------------
@@ -169,16 +175,21 @@ async function defaultBranch($: Engine, cwd: string) {
   return null
 }
 
-async function readInfo($: Engine, path: string): Promise<RepoInfo> {
-  const at = await locate($, path)
+/** A summary just read for the session folder's repo, so the pane needn't read it again. */
+type Known = { at: Location; band: Band }
+
+async function readInfo($: Engine, path: string, known?: Known): Promise<RepoInfo> {
+  const isKnown = known !== undefined && samePath(known.at.top, path)
+  const at = isKnown ? known.at : await locate($, path)
   if (!at) throw new Error(`${path} is no longer a git repository`)
   const cwd = at.top
-  const [head, base] = await Promise.all([readBand($, at), defaultBranch($, cwd)])
-  const [merged, branches, remotes, worktrees] = await Promise.all([
+  const [head, base] = await Promise.all([isKnown ? known.band : readBand($, at), defaultBranch($, cwd)])
+  const [merged, branches, remotes, worktrees, stashes] = await Promise.all([
     base ? ok(git($, cwd, ['for-each-ref', `--merged=${base}`, '--format=%(refname:short)', 'refs/heads'])) : '',
     ok(git($, cwd, ['for-each-ref', `--format=${BRANCH_FORMAT}`, 'refs/heads', 'refs/remotes'])),
     ok(git($, cwd, ['remote', '-v'])),
     ok(git($, cwd, ['worktree', 'list', '--porcelain'])),
+    head.stashes ? ok(git($, cwd, ['stash', 'list', `--format=${STASH_FORMAT}`])) : '',
   ])
   const mainWorktree = at.commonDir.endsWith('/.git') ? at.commonDir.slice(0, -'/.git'.length) : null
 
@@ -190,6 +201,7 @@ async function readInfo($: Engine, path: string): Promise<RepoInfo> {
     branches: parseBranches(branches, new Set(merged.split('\n').filter(Boolean))),
     remotes: parseRemotes(remotes),
     worktrees: parseWorktrees(worktrees),
+    stashes: parseStashes(stashes),
     readAt: Date.now(),
   }
 }
@@ -199,10 +211,11 @@ async function readDetail($: Engine, data: RepoInfo, br: Branch): Promise<Branch
   const cwd = data.path
   const upstream = !br.isRemote && br.upstream && !br.isGone ? br.upstream : null
   const isDefault = data.defaultBranch !== null && (br.name === data.defaultBranch || br.upstream === data.defaultBranch)
-  const [log, sides, tags, counts] = await Promise.all([
+  const [log, sides, tags, tagNames, counts] = await Promise.all([
     ok(git($, cwd, ['log', '--graph', '--decorate=short', `--format=${LOG_FORMAT}`, `-n${LOG_COUNT}`, br.ref, ...(upstream ? [upstream] : [])])),
     upstream ? ok(git($, cwd, ['rev-list', '--left-right', '--max-count=1000', `${br.ref}...${upstream}`])) : '',
     ok(git($, cwd, ['for-each-ref', `--merged=${br.ref}`, '--sort=-creatordate', `--count=${TAG_COUNT}`, `--format=${TAG_FORMAT}`, 'refs/tags'])),
+    ok(git($, cwd, ['for-each-ref', `--merged=${br.ref}`, '--format=%(refname)', 'refs/tags'])),
     data.defaultBranch && !isDefault
       ? ok(git($, cwd, ['rev-list', '--left-right', '--count', `${br.ref}...${data.defaultBranch}`]))
       : '',
@@ -213,6 +226,7 @@ async function readDetail($: Engine, data: RepoInfo, br: Branch): Promise<Branch
     ref: br.ref,
     log: parseLog(log, ahead, behind),
     tags: parseTags(tags),
+    tagCount: tagNames.split('\n').filter(Boolean).length,
     vsDefault: mine !== undefined && theirs !== undefined && !Number.isNaN(mine) ? { ahead: mine, behind: theirs } : null,
   }
 }
@@ -252,23 +266,46 @@ async function discover($: Engine): Promise<Repo[]> {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-/** Re-read the session folder's repo for the summary, and the pane's repo while the pane is open. */
-async function refresh($: Engine) {
+/**
+ * Re-read the session folder's repo for the summary, and the pane's repo while
+ * the pane is open. Says whether anything changed.
+ */
+async function refresh($: Engine): Promise<boolean> {
   const at = await locate($, toSlash(await $.session.cwd()))
   const next = at ? await readBand($, at) : null
-  if (!same(next, await read($, band))) await update($, band, () => next)
+  const isNew = !same(next, await read($, band))
+  if (isNew) await update($, band, () => next)
   if (placement === 'status-line') $.ui.status(next ? summaryText(next, show, Date.now()) || '⎇ git' : undefined)
 
-  if ((await $.ui.panes()).some(pane => pane.id === PANE)) await loadInfo($, true)
+  const isPaneOpen = (await $.ui.panes()).some(pane => pane.id === PANE)
+  const isPaneNew = isPaneOpen ? await loadInfo($, true, at && next ? { at, band: next } : undefined) : false
+  return isNew || isPaneNew
+}
+
+// The poll is one timer at a time, re-armed after each run with its new delay.
+let pollMs = POLL_MIN_MS
+let pollTimer: { cancel: () => void } | null = null
+
+function schedulePoll($: Engine) {
+  if (pollTimer) pollTimer.cancel()
+  pollTimer = $.clock.after(pollMs, () => void poll($))
+}
+
+async function poll($: Engine) {
+  const isChanged = await refresh($).catch(() => false)
+  pollMs = isChanged ? POLL_MIN_MS : Math.min(POLL_MAX_MS, pollMs * 2)
+  schedulePoll($)
 }
 
 let isQueued = false
-/** Coalesces a burst of tool calls into one refresh. */
+/** Coalesces a burst of tool calls into one refresh, and brings the poll back to 15 s. */
 function refreshSoon($: Engine) {
   if (isQueued) return
   isQueued = true
   $.clock.after(500, () => {
     isQueued = false
+    pollMs = POLL_MIN_MS
+    schedulePoll($)
     void refresh($).catch(() => undefined)
   })
 }
@@ -283,45 +320,50 @@ let detailTicket = 0
  * the checked-out one), then reads that branch. Quiet: no loading line, and
  * no redraw when nothing changed.
  */
-async function loadInfo($: Engine, isQuiet = false) {
+async function loadInfo($: Engine, isQuiet = false, known?: Known): Promise<boolean> {
   const mine = ++infoTicket
   const path = await read($, repo)
   if (!path) {
     await update($, info, () => null)
-    return
+    return false
   }
   if (!isQuiet) await update($, isLoading, () => true)
   try {
-    const next = await readInfo($, path)
-    if (mine !== infoTicket) return
+    const next = await readInfo($, path, known)
+    if (mine !== infoTicket) return false
     const now = await read($, info)
-    if (!now || !same({ ...now, readAt: 0 }, { ...next, readAt: 0 })) await update($, info, () => next)
+    const isNew = !now || !same({ ...now, readAt: 0 }, { ...next, readAt: 0 })
+    if (isNew) await update($, info, () => next)
     await update($, error, () => '')
     const picked = await read($, branch)
     if (!next.branches.some(b => b.ref === picked)) {
       const fallback = next.branches.find(b => b.isCurrent) ?? next.branches[0]
       await update($, branch, () => fallback?.ref ?? '')
     }
-    await loadDetail($, isQuiet)
+    const isDetailNew = await loadDetail($, isQuiet)
+    return isNew || isDetailNew
   } catch (err) {
     if (mine === infoTicket) await update($, error, () => String(err instanceof Error ? err.message : err))
+    return false
   } finally {
     if (!isQuiet && mine === infoTicket) await update($, isLoading, () => false)
   }
 }
 
-async function loadDetail($: Engine, isQuiet = false) {
+async function loadDetail($: Engine, isQuiet = false): Promise<boolean> {
   const mine = ++detailTicket
   const [data, ref] = await Promise.all([read($, info), read($, branch)])
   const br = data?.branches.find(b => b.ref === ref)
   if (!data || !br) {
     await update($, detail, () => null)
-    return
+    return false
   }
   if (!isQuiet) await update($, detail, () => null)
   const next = await readDetail($, data, br)
-  if (mine !== detailTicket) return
-  if (!same(next, await read($, detail))) await update($, detail, () => next)
+  if (mine !== detailTicket) return false
+  const isNew = !same(next, await read($, detail))
+  if (isNew) await update($, detail, () => next)
+  return isNew
 }
 
 async function openPane($: Engine) {
@@ -393,17 +435,20 @@ export const register: Register = (on, options) => {
     // A reload after a preference change: drop the line the other placement left.
     if (placement === 'above-prompt') $.ui.status(undefined)
     void refresh($).catch(() => undefined)
-    $.clock.every(POLL_MS, () => void refresh($).catch(() => undefined))
+    pollMs = POLL_MIN_MS
+    schedulePoll($)
 
     return next(e)
   })
 
   // Claude's own edits, commits and checkouts show up right after they happen.
+  // If this hook ever fails, the handler passes the call on as if the hook weren't
+  // there (a tool that already ran is not run again), so a bug here can't block a tool.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     refreshSoon($)
     return result
-  })
+  }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
     refreshSoon($)
@@ -642,10 +687,25 @@ export const register: Register = (on, options) => {
     const detailWidth = isSideBySide ? width - listWidth : width
     const b = data.band
 
+    // Counts for the tabs and the overview; a tab with nothing in it is left out.
+    const isMore = more !== null && br !== undefined && more.ref === br.ref
+    const ownStashes: Stash[] = br && !br.isRemote ? data.stashes.filter(st => st.branch === br.name) : []
+    const counts: Partial<Record<Tab, number>> = {
+      tags: isMore ? more.tagCount : 0,
+      worktrees: data.worktrees.length > 1 ? data.worktrees.length : 0,
+      stashes: ownStashes.length,
+    }
+    const shown = TABS.filter(t => counts[t.value] !== 0).map(t => ({
+      ...t,
+      label: counts[t.value] === undefined ? t.label : `${t.label} (${counts[t.value]})`,
+    }))
+    // A tab that emptied (another branch picked, the last stash dropped) shows the overview.
+    const open: Tab = shown.some(t => t.value === current) ? current : 'overview'
+
     const tabs = (
       <Box gap={1} flexWrap="wrap">
-        {TABS.map(t =>
-          t.value === current ? (
+        {shown.map(t =>
+          t.value === open ? (
             <Text key={t.value} bold underline color={c.accent}>
               {t.label}
             </Text>
@@ -732,6 +792,14 @@ export const register: Register = (on, options) => {
             )}
           {own && row('Remote', `${own.name} · ${own.fetch}`)}
           {own?.web && branchOnRemote && row('On the web', link(branchWebUrl(own.web, branchOnRemote)))}
+          {row(
+            'Contents',
+            <Text wrap="wrap">
+              {isMore ? plural(more.tagCount, 'tag') : '… tags'} in its history
+              {!br.isRemote && ` · ${plural(ownStashes.length, 'stash', 'stashes')} made on it`}
+              {` · ${plural(data.worktrees.length, 'worktree')} in the repo`}
+            </Text>,
+          )}
           {(br.isRemote || br.upstream) && row('Last fetch', b.fetchedAt ? `${ago(b.fetchedAt, now)} (this view never fetches)` : 'never')}
           {br.isCurrent && (
             <Box flexDirection="column" marginTop={1}>
@@ -751,7 +819,7 @@ export const register: Register = (on, options) => {
                     .join(' · ')
                 ),
               )}
-              {row('Stashes', String(b.stashes))}
+              {row('Stashes', `${b.stashes} in the repo`)}
               {data.mainWorktree && row('Worktree of', data.mainWorktree)}
               {b.conflicted.slice(0, 20).map(file => (
                 <Text key={`conflict:${file}`} color={c.bad} wrap="truncate-middle">
@@ -819,6 +887,19 @@ export const register: Register = (on, options) => {
       )
     }
 
+    const stashes = (br: Branch) => (
+      <Box flexDirection="column">
+        {ownStashes.map(st => (
+          <Text key={`stash:${st.name}`} wrap="truncate-end">
+            <Text color={c.sha}>{st.name}</Text>
+            <Text dimColor> {ago(st.at, now)} </Text>
+            {st.subject.replace(/^(?:WIP on|On) [^:]+: /, '')}
+          </Text>
+        ))}
+        <Box marginTop={1}>{none(`Stashes made while ${br.name} was checked out.`)}</Box>
+      </Box>
+    )
+
     const worktrees = (br: Branch) => (
       <Box flexDirection="column">
         {data.worktrees.map(w => {
@@ -841,7 +922,6 @@ export const register: Register = (on, options) => {
             </Box>
           )
         })}
-        {data.worktrees.length <= 1 && none('Only the main checkout: no linked worktrees.')}
         <Box marginTop={1}>{none(`● has ${br.name} checked out`)}</Box>
       </Box>
     )
@@ -856,7 +936,7 @@ export const register: Register = (on, options) => {
             </Text>
             <Box marginTop={1}>{tabs}</Box>
             <Box marginTop={1} flexDirection="column">
-              {{ overview, history, tags, worktrees }[current](br)}
+              {{ overview, history, tags, worktrees, stashes }[open](br)}
             </Box>
           </Box>
         ) : (

@@ -17,7 +17,7 @@ The summary shows only while the session's folder is inside a git repository. An
 - **Status**: an operation in progress (merge, rebase with its step, patch apply, cherry-pick, revert, bisect), conflicted, staged, changed and untracked files, or `✓ clean`, and stashes.
 - **`[ + ]`** opens the pane.
 
-It updates after each of Claude's tool calls, at the end of each turn, and every 15 seconds for changes you make elsewhere.
+It updates half a second after Claude's tool calls and turns (a burst of calls makes one update), on a timer of its own, so Claude never waits for git. For changes you make elsewhere it also checks every 15 seconds, slowing to every 4 minutes while nothing changes; Claude's next tool call brings it back to 15 seconds.
 
 ## Preferences
 
@@ -45,10 +45,13 @@ The session's folder doesn't have to be the repository. The **Repository** picke
 
 | Tab | Shows |
 | --- | --- |
-| **Overview** | Last commit, tracking and ↑/↓ (or "deleted on the remote"), commits ahead of and behind the default branch, merged or not, the worktree it's checked out in, its remote and a link to the branch on GitHub, GitLab and similar hosts, and last fetch. For the checked-out branch, also the working tree, stashes, conflicted files and how to finish an operation in progress |
+| **Overview** | Last commit, tracking and ↑/↓ (or "deleted on the remote"), commits ahead of and behind the default branch, merged or not, the worktree it's checked out in, its remote and a link to the branch on GitHub, GitLab and similar hosts, last fetch, and how many tags, stashes and worktrees there are. For the checked-out branch, also the working tree, conflicted files and how to finish an operation in progress |
 | **History** | The branch's commit graph with its upstream (60 commits), ↑ marking commits not pushed yet and ↓ commits not pulled yet |
-| **Tags** | Tags in the branch's history, newest 50 |
-| **Worktrees** | Every worktree of the repository, with the ones that have this branch checked out marked |
+| **Tags (n)** | Tags in the branch's history, newest 50 |
+| **Worktrees (n)** | Every worktree of the repository, with the ones that have this branch checked out marked |
+| **Stashes (n)** | Stashes made while this branch was checked out |
+
+A tab shows its count, and a tab with nothing in it is left out: Tags when the branch's history has no tags, Worktrees when there's only the main checkout, Stashes when none were made on the branch.
 
 `↻` re-reads the repository. `☾`/`☀` switches light and dark. Plugins aren't told the app's theme, and the choice lasts for the session only, because remembering it would mean writing a file. Below 80 columns the branch list sits above the details.
 
@@ -72,6 +75,7 @@ Programs it runs (all `git`, in the repository's folder):
 | `git remote -v` | Remotes |
 | `git for-each-ref --merged=<branch> refs/tags` | Tags in a branch's history |
 | `git worktree list --porcelain` | Worktrees |
+| `git stash list` | Stashes, only when `git status` reports some |
 
 Files it reads: what git keeps for an operation in progress (`MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`), the date of `FETCH_HEAD`, and the folder listing used to find repositories inside it.
 

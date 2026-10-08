@@ -2,7 +2,7 @@
 export type Theme = 'light' | 'dark'
 
 /** The tabs on the right of the pane, for the branch picked on the left. */
-export type Tab = 'overview' | 'history' | 'tags' | 'worktrees'
+export type Tab = 'overview' | 'history' | 'tags' | 'worktrees' | 'stashes'
 
 /** Which parts of the summary row show, from the mod's preferences. */
 export type Show = { branch: boolean; remote: boolean; status: boolean }
@@ -69,6 +69,9 @@ export type Remote = { name: string; fetch: string; push: string; web: string | 
 
 export type Tag = { name: string; at: number; subject: string }
 
+/** A stash, and the branch it was made on (null when HEAD was detached). */
+export type Stash = { name: string; at: number; subject: string; branch: string | null }
+
 export type Worktree = { path: string; branch: string | null; sha: string; isBare: boolean; isLocked: boolean; isPrunable: boolean }
 
 /** What the pane knows about one repository: its branches and everything shared by them. */
@@ -82,6 +85,8 @@ export type RepoInfo = {
   branches: Branch[]
   remotes: Remote[]
   worktrees: Worktree[]
+  /** Every stash in the repo, newest first; the pane shows each branch its own. */
+  stashes: Stash[]
   readAt: number
 }
 
@@ -91,6 +96,8 @@ export type BranchDetail = {
   log: LogLine[]
   /** Tags reachable from the branch, newest first. */
   tags: Tag[]
+  /** How many tags are in the branch's history; `tags` holds the newest TAG_COUNT of them. */
+  tagCount: number
   /** Commits the branch has that the default branch hasn't, and the other way round. */
   vsDefault: { ahead: number; behind: number } | null
 }

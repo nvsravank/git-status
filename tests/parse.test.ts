@@ -7,6 +7,7 @@ import {
   parseLeftRight,
   parseLog,
   parseRemotes,
+  parseStashes,
   parseStatus,
   parseTrack,
   parseWorktrees,
@@ -223,5 +224,20 @@ describe('summaryText', () => {
   test('a clean tree in sync', () => {
     const clean = { ...band, ahead: 0, behind: 0, staged: 0, untracked: 0, stashes: 0, operation: null }
     expect(summaryText(clean, { branch: false, remote: true, status: true }, 0)).toBe('→ origin/main ✓ · never fetched · ✓ clean')
+  })
+})
+
+describe('stashes', () => {
+  test('the branch each stash was made on', () => {
+    const out = [
+      ['stash@{0}', '1700000000', 'WIP on main: abc1234 Fix it'].join(NUL),
+      ['stash@{1}', '1600000000', 'On feature/x: before rebase'].join(NUL),
+      ['stash@{2}', '1500000000', 'WIP on (no branch): def5678 Detached'].join(NUL),
+    ].join('\n')
+    expect(parseStashes(out).map(s => [s.name, s.branch, s.at])).toEqual([
+      ['stash@{0}', 'main', 1700000000000],
+      ['stash@{1}', 'feature/x', 1600000000000],
+      ['stash@{2}', null, 1500000000000],
+    ])
   })
 })

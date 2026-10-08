@@ -2,7 +2,7 @@
 // validator follows `$` only within one file, so everything that runs git
 // lives in register.tsx.)
 
-import type { Band, Branch, LogLine, Operation, Remote, Show, Status, Tag, Worktree } from '../types'
+import type { Band, Branch, LogLine, Operation, Remote, Show, Stash, Status, Tag, Worktree } from '../types'
 
 // --- paths -----------------------------------------------------------------
 // Paths are kept with forward slashes. Claude Code reports Windows folders as
@@ -211,7 +211,23 @@ export function parseRemotes(out: string): Remote[] {
   return [...byName.values()]
 }
 
-// --- tags, worktrees ---------------------------------------------------------
+// --- stashes, tags, worktrees ---------------------------------------------------
+
+export const STASH_FORMAT = '%gd%x00%ct%x00%gs'
+
+/** `git stash list`; the branch comes from the message git writes, "WIP on <branch>:" or "On <branch>:". */
+export function parseStashes(out: string): Stash[] {
+  return out
+    .split('\n')
+    .filter(Boolean)
+    .map(line => {
+      const [name = '', date = '', ...rest] = line.split('\0')
+      const subject = rest.join('\0')
+      const on = /^(?:WIP on|On) ([^:]+):/.exec(subject)?.[1]
+      return { name, at: Number(date) * 1000, subject, branch: on && on !== '(no branch)' ? on : null }
+    })
+}
+
 
 export const TAG_FORMAT = '%(refname:short)%00%(creatordate:unix)%00%(contents:subject)'
 

@@ -1,6 +1,3 @@
-/** The palette the pane draws in; plugins aren't told the app's theme. */
-export type Theme = 'light' | 'dark'
-
 /** The tabs on the right of the pane, for the branch picked on the left. */
 export type Tab = 'overview' | 'history' | 'tags' | 'worktrees' | 'stashes'
 
@@ -117,8 +114,6 @@ declare module 'claude-code' {
       detail: BranchDetail | null
       error: string
       isLoading: boolean
-      /** Set by the ☀/☾ toggle; null follows the Claude Code theme setting. */
-      theme: Theme | null
     }
   }
 }

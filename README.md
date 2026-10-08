@@ -53,7 +53,7 @@ The session's folder doesn't have to be the repository. The **Repository** picke
 
 A tab shows its count, and a tab with nothing in it is left out: Tags when the branch's history has no tags, Worktrees when there's only the main checkout, Stashes when none were made on the branch.
 
-`↻` re-reads the repository. `☾`/`☀` switches light and dark. Plugins aren't told the app's theme, and the choice lasts for the session only, because remembering it would mean writing a file. Below 80 columns the branch list sits above the details.
+`↻` re-reads the repository. Colors follow the app's light or dark theme by themselves. Below 80 columns the branch list sits above the details.
 
 ## What it runs and changes
 

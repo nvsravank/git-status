@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Band, Branch, BranchDetail, LogLine, Operation, Repo, RepoInfo, Show, Stash, Tab, Theme } from '../types'
+import type { Band, Branch, BranchDetail, LogLine, Operation, Repo, RepoInfo, Show, Stash, Tab } from '../types'
 import {
   BRANCH_FORMAT,
   LOG_FORMAT,
@@ -62,20 +62,20 @@ const info = atom({ plugin: 'git-status', key: 'info' } as const, null)
 const detail = atom({ plugin: 'git-status', key: 'detail' } as const, null)
 const error = atom({ plugin: 'git-status', key: 'error' } as const, '')
 const isLoading = atom({ plugin: 'git-status', key: 'isLoading' } as const, false)
-// The ☀/☾ toggle's pick, kept for the session only (saving it would write a file).
-// Until it is pressed, the pane follows the Claude Code theme setting.
-const theme = atom({ plugin: 'git-status', key: 'theme' } as const, null)
-// The Claude Code theme setting, read at session start: `light`, `light-daltonized`
-// and the like are light; `dark` and the rest (including no setting) are dark.
-let appTheme: Theme = 'dark'
-
-// Solid hex only: the desktop did not draw rgba().
-// `selected` is the background of the picked branch, drawn with white text.
-type Palette = Record<'accent' | 'selected' | 'good' | 'warn' | 'bad' | 'sha' | 'refs' | 'graph', string>
-const PALETTES: Record<Theme, Palette> = {
-  light: { accent: '#0969da', selected: '#0969da', good: '#1a7f37', warn: '#9a6700', bad: '#cf222e', sha: '#953800', refs: '#8250df', graph: '#57606a' },
-  dark: { accent: '#79c0ff', selected: '#1f6feb', good: '#7ee787', warn: '#e3b341', bad: '#ff7b72', sha: '#ffa657', refs: '#d2a8ff', graph: '#8b949e' },
-}
+// Colors are the app theme's own keys, named for what they mean, so every color
+// follows the person's light or dark theme with no setting or toggle.
+// `onSelected` is the text drawn on `selected`, the picked branch's background.
+const c = {
+  accent: 'suggestion',
+  selected: 'suggestion',
+  onSelected: 'inverseText',
+  good: 'success',
+  warn: 'warning',
+  bad: 'error',
+  sha: 'claude',
+  refs: 'merged',
+  graph: 'inactive',
+} as const
 
 const TABS: readonly { value: Tab; label: string }[] = [
   { value: 'overview', label: 'Overview' },
@@ -394,9 +394,6 @@ const pickBranch = async ($: Engine, ref: string) => {
   await loadDetail($)
 }
 
-const toggleTheme = async ($: Engine) => {
-  await update($, theme, t => ((t ?? appTheme) === 'light' ? 'dark' : 'light'))
-}
 
 // The desktop app often doesn't run a Button's onPress or a Select's onSelect
 // closure, so every control is also answered here by its key, at the
@@ -405,7 +402,6 @@ const OPEN_KEY = 'git-status-open'
 
 async function handlePress($: Engine, key: string) {
   if (key === 'refresh' || key === OPEN_KEY) await openPane($)
-  else if (key === 'theme') await toggleTheme($)
   else if (key.startsWith('tab:')) await update($, tab, () => key.slice('tab:'.length) as Tab)
   else if (key.startsWith('repo:')) await pickRepo($, key.slice('repo:'.length))
   else if (key.startsWith('branch:')) await pickBranch($, key.slice('branch:'.length))
@@ -437,9 +433,6 @@ export const register: Register = (on, options) => {
       name: COMMAND,
       description: 'Open "Git status": every branch, its history, tags and worktrees (read-only)',
     })
-    const rows = await $.config.list()
-    const setting = rows.find(row => row.key === 'theme')
-    appTheme = typeof setting?.value === 'string' && setting.value.startsWith('light') ? 'light' : 'dark'
     // A reload after a preference change: drop the line the other placement left.
     if (placement === 'above-prompt') $.ui.status(undefined)
     void refresh($).catch(() => undefined)
@@ -516,7 +509,6 @@ export const register: Register = (on, options) => {
     if (placement !== 'above-prompt' || e.props.hasSurvey || b === null) return next(e)
 
     const { Box, Text, Button } = $.ui.resolve(e)
-    const c = PALETTES[(await read($, theme)) ?? appTheme]
     const sep = <Text dimColor> · </Text>
     const isNothingShown = !show.branch && !show.remote && !show.status
 
@@ -567,7 +559,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button, Markdown } = ui
-    const [found, path, picked, current, data, more, failed, loading, pickedTheme] = await Promise.all([
+    const [found, path, picked, current, data, more, failed, loading] = await Promise.all([
       read($, repos),
       read($, repo),
       read($, branch),
@@ -576,23 +568,14 @@ export const register: Register = (on, options) => {
       read($, detail),
       read($, error),
       read($, isLoading),
-      read($, theme),
     ])
-    const colorTheme = pickedTheme ?? appTheme
-    const c = PALETTES[colorTheme]
     const width = e.props.bodyColumns
     const now = Date.now()
 
     const tools = (
-      <Box gap={1}>
-        <Button key="refresh" plain onPress={() => void openPane($)}>
-          ↻
-        </Button>
-        {/* Shows the mode a press switches to: ☾ while light, ☀ while dark. */}
-        <Button key="theme" plain onPress={() => void toggleTheme($)}>
-          {colorTheme === 'light' ? '☾' : '☀'}
-        </Button>
-      </Box>
+      <Button key="refresh" plain onPress={() => void openPane($)}>
+        ↻
+      </Button>
     )
 
     if (found.length === 0) {
@@ -665,7 +648,7 @@ export const register: Register = (on, options) => {
     const remote = untrackedRemotes(data.branches).sort((x, y) => y.committedAt - x.committedAt)
     const item = (b: Branch) =>
       b.ref === picked ? (
-        <Text key={`branch:${b.ref}`} bold color="#ffffff" backgroundColor={b.isGone ? c.bad : c.selected} wrap="truncate-end">
+        <Text key={`branch:${b.ref}`} bold color={c.onSelected} backgroundColor={b.isGone ? c.bad : c.selected} wrap="truncate-end">
           {branchLabel(b)}
         </Text>
       ) : (

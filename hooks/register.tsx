@@ -792,14 +792,9 @@ export const register: Register = (on, options) => {
             )}
           {own && row('Remote', `${own.name} · ${own.fetch}`)}
           {own?.web && branchOnRemote && row('On the web', link(branchWebUrl(own.web, branchOnRemote)))}
-          {row(
-            'Contents',
-            <Text wrap="wrap">
-              {isMore ? plural(more.tagCount, 'tag') : '… tags'} in its history
-              {!br.isRemote && ` · ${plural(ownStashes.length, 'stash', 'stashes')} made on it`}
-              {` · ${plural(data.worktrees.length, 'worktree')} in the repo`}
-            </Text>,
-          )}
+          {row('Tags', isMore ? `${more.tagCount} in its history` : '…')}
+          {!br.isRemote && row('Stashes', `${ownStashes.length} made on it (${b.stashes} in the repo)`)}
+          {row('Worktrees', `${data.worktrees.length} in the repo`)}
           {(br.isRemote || br.upstream) && row('Last fetch', b.fetchedAt ? `${ago(b.fetchedAt, now)} (this view never fetches)` : 'never')}
           {br.isCurrent && (
             <Box flexDirection="column" marginTop={1}>
@@ -819,7 +814,6 @@ export const register: Register = (on, options) => {
                     .join(' · ')
                 ),
               )}
-              {row('Stashes', `${b.stashes} in the repo`)}
               {data.mainWorktree && row('Worktree of', data.mainWorktree)}
               {b.conflicted.slice(0, 20).map(file => (
                 <Text key={`conflict:${file}`} color={c.bad} wrap="truncate-middle">

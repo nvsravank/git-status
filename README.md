@@ -45,7 +45,7 @@ The session's folder doesn't have to be the repository. The **Repository** picke
 
 | Tab | Shows |
 | --- | --- |
-| **Overview** | Last commit, tracking and ↑/↓ (or "deleted on the remote"), commits ahead of and behind the default branch, merged or not, the worktree it's checked out in, its remote and a link to the branch on GitHub, GitLab and similar hosts, last fetch, and how many tags, stashes and worktrees there are. For the checked-out branch, also the working tree, conflicted files and how to finish an operation in progress |
+| **Overview** | Last commit, tracking and ↑/↓ (or "deleted on the remote"), commits ahead of and behind the default branch, merged or not, the worktree it's checked out in, its remote and a link to the branch on GitHub, GitLab and similar hosts, last fetch, and separate Tags, Stashes and Worktrees counts. For the checked-out branch, also the working tree, conflicted files and how to finish an operation in progress |
 | **History** | The branch's commit graph with its upstream (60 commits), ↑ marking commits not pushed yet and ↓ commits not pulled yet |
 | **Tags (n)** | Tags in the branch's history, newest 50 |
 | **Worktrees (n)** | Every worktree of the repository, with the ones that have this branch checked out marked |

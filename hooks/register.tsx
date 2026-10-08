@@ -833,9 +833,13 @@ export const register: Register = (on, options) => {
       const commits = log.flatMap(line => (line.commit ? [line.commit] : []))
       const longest = (values: string[], min: number, max: number) =>
         Math.min(max, Math.max(min, ...values.map(v => v.length)))
-      // The graph glyphs, then a space and the ↑/↓ marker when any commit has one.
+      // The graph glyphs, then the ↑/↓ marker when any commit has one. A straight line
+      // of commits (every row a lone `*`) says nothing, so its glyphs are left out.
       const hasSide = commits.some(one => one.side !== null)
-      const graphWidth = longest(log.map(line => line.graph.trimEnd()), 1, 16) + (hasSide ? 2 : 0) + 1
+      const isLinear = log.every(line => line.commit !== undefined && line.graph.trim() === '*')
+      const glyphs = (line: LogLine) => (isLinear ? '' : line.graph.trimEnd())
+      const graphWidth =
+        (isLinear ? 0 : longest(log.map(line => line.graph.trimEnd()), 1, 16) + 1) + (hasSide ? 2 : 0)
       const shaWidth = 8
       const authorWidth = longest(commits.map(one => one.author), 6, 18) + 2
       const ageWidth = longest(commits.map(one => ago(one.at, now)), 3, 9)
@@ -847,7 +851,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           <Box>
-            {cell(graphWidth, <Text> </Text>)}
+            {graphWidth > 0 && cell(graphWidth, <Text> </Text>)}
             {cell(shaWidth, <Text dimColor>Commit</Text>)}
             <Box flexGrow={1} flexShrink={1}>
               <Text dimColor>Message</Text>
@@ -857,7 +861,7 @@ export const register: Register = (on, options) => {
           </Box>
           {log.map((line, i) => {
             const one = line.commit
-            const graph = line.graph.trimEnd()
+            const graph = glyphs(line)
             if (!one)
               return (
                 <Text key={`graph-${i}`} color={c.graph} wrap="truncate-end">
@@ -866,14 +870,15 @@ export const register: Register = (on, options) => {
               )
             return (
               <Box key={one.sha}>
-                {cell(
-                  graphWidth,
-                  <Text wrap="truncate-end">
-                    <Text color={c.graph}>{graph}</Text>
-                    {one.side === 'ahead' && <Text color={c.good}> ↑</Text>}
-                    {one.side === 'behind' && <Text color={c.warn}> ↓</Text>}
-                  </Text>,
-                )}
+                {graphWidth > 0 &&
+                  cell(
+                    graphWidth,
+                    <Text wrap="truncate-end">
+                      <Text color={c.graph}>{graph}</Text>
+                      {one.side === 'ahead' && <Text color={c.good}>{graph ? ' ↑' : '↑'}</Text>}
+                      {one.side === 'behind' && <Text color={c.warn}>{graph ? ' ↓' : '↓'}</Text>}
+                    </Text>,
+                  )}
                 {cell(shaWidth, <Text color={c.sha}>{one.sha}</Text>)}
                 <Box flexGrow={1} flexShrink={1} paddingRight={2}>
                   <Text wrap="truncate-end">
@@ -894,17 +899,24 @@ export const register: Register = (on, options) => {
       if (!more || more.ref !== br.ref) return none('Reading the history…')
       return (
         <Box flexDirection="column">
-          {(br.ahead > 0 || br.behind > 0) && br.upstream && (
-            <Box marginBottom={1}>
-              <Text dimColor wrap="wrap">
-                <Text color={c.good}>↑</Text> on {br.name}, not pushed yet · <Text color={c.warn}>↓</Text> on {br.upstream}, not
-                pulled yet
-              </Text>
-            </Box>
-          )}
           {more.log.length === 0 && none('No commits.')}
           {more.log.length > 0 && historyTable(more.log)}
           {more.log.length >= LOG_COUNT && <Box marginTop={1}>{none(`The newest ${LOG_COUNT} commits.`)}</Box>}
+          {/* What the arrows mean, below the table: one line each. */}
+          {br.upstream && (br.ahead > 0 || br.behind > 0) && (
+            <Box flexDirection="column" marginTop={2}>
+              {br.ahead > 0 && (
+                <Text dimColor wrap="wrap">
+                  <Text color={c.good}>↑</Text> on {br.name}, not pushed yet
+                </Text>
+              )}
+              {br.behind > 0 && (
+                <Text dimColor wrap="wrap">
+                  <Text color={c.warn}>↓</Text> on {br.upstream}, not pulled yet
+                </Text>
+              )}
+            </Box>
+          )}
         </Box>
       )
     }
@@ -990,12 +1002,6 @@ export const register: Register = (on, options) => {
         <Box marginTop={1} flexDirection={isSideBySide ? 'row' : 'column'}>
           {list}
           {right}
-        </Box>
-        <Box marginTop={1}>
-          <Text dimColor>
-            Read {ago(data.readAt, now)} · read-only, nothing is written
-            {loading ? ' · refreshing…' : ''}
-          </Text>
         </Box>
       </Box>
     )

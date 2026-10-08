@@ -41,7 +41,7 @@
     "placement": {
       "type": "string",
       "title": "Where the summary shows",
-      "description": "above-prompt: a row above the prompt with a + button that opens the pane (one row, shared with other mods: only one can draw it). status-line: a line under the prompt that sits beside other mods' lines, with no button (open the pane with /git-status).",
+      "description": "above-prompt: a row above the prompt with a + button that opens the pane (one row, shared with other mods: only one can draw it). status-line: a line under the prompt that sits beside other mods' lines, with the + button at the right of the prompt footer.",
       "options": [
         "above-prompt",
         "status-line"

@@ -425,6 +425,11 @@ export const register: Register = (on, options) => {
     await handlePress($, e.element)
     return { element: e.element }
   })
+  on('ui.press', { component: 'SessionMode' }, async ($, e, next) => {
+    if (e.element !== OPEN_KEY) return next(e)
+    await handlePress($, e.element)
+    return { element: e.element }
+  })
 
   on('command.run', { command: COMMAND }, async $ => {
     await openPane($)
@@ -432,6 +437,23 @@ export const register: Register = (on, options) => {
     return {
       text: found.length ? 'Opened "Git status".' : 'Opened "Git status". No git repository was found in or around this folder.',
     }
+  })
+
+  // --- the status line's + button --------------------------------------------
+  // The status line itself takes plain text, so with placement status-line the
+  // button goes in the prompt footer's mode labels, which a mod may draw as a
+  // tree. The engine's labels (focus, memory paused, ...) are kept in front of it.
+
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    if (placement !== 'status-line' || (await read($, band)) === null) return next(e)
+
+    const { Box, Text, Button } = $.ui.resolve(e)
+    return (
+      <Box gap={1}>
+        {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
+        <Button key={OPEN_KEY} label="+" onPress={() => void openPane($)} />
+      </Box>
+    )
   })
 
   // --- the row above the prompt: only while the session folder is in a repo ---

@@ -28,7 +28,7 @@ Set them in `/config` (or under `pluginConfigs` → `git-status` in settings):
 | Show branch | on | The checked-out branch |
 | Show remote | on | Upstream, ↑/↓ and last fetch |
 | Show status | on | Files, operation in progress, stashes |
-| Where the summary shows | `above-prompt` | `above-prompt` is the row above the prompt, with the `[ + ]` button. Only one mod can draw that row at a time. `status-line` is a line under the prompt that sits beside other mods' lines, with no button: open the pane with `/git-status` |
+| Where the summary shows | `above-prompt` | `above-prompt` is the row above the prompt, with the `[ + ]` button. Only one mod can draw that row at a time. `status-line` is a line under the prompt that sits beside other mods' lines; the `[ + ]` button moves to the right end of the prompt footer, after its mode labels |
 
 With all three parts off, the row above the prompt still shows `Git status [ + ]`.
 

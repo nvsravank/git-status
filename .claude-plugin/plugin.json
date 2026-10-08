@@ -2,11 +2,51 @@
   "name": "git-status",
   "displayName": "Git Status",
   "version": "0.1.0",
-  "description": "A read-only git dashboard: branch, upstream and ahead/behind above the prompt, and /git-status for branches, history, remotes, stashes, tags and worktrees of every repo in your folder",
-  "author": { "name": "Sravan", "url": "https://github.com/nvsravank" },
+  "description": "A read-only git dashboard: branch, remote and status in a row above the prompt (or the status line), and /git-status for every branch with its history, tags and worktrees",
+  "author": {
+    "name": "Sravan",
+    "url": "https://github.com/nvsravank"
+  },
   "homepage": "https://github.com/nvsravank/git-status",
   "repository": "https://github.com/nvsravank/git-status",
   "license": "MIT",
-  "keywords": ["git", "status", "branches", "remotes", "history", "read-only"],
-  "types": "./types/index.d.ts"
+  "keywords": [
+    "git",
+    "status",
+    "branches",
+    "remotes",
+    "history",
+    "read-only"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "showBranch": {
+      "type": "boolean",
+      "title": "Show branch",
+      "description": "Show the checked-out branch in the summary.",
+      "default": true
+    },
+    "showRemote": {
+      "type": "boolean",
+      "title": "Show remote",
+      "description": "Show the upstream branch, commits to push and pull, and when the repo was last fetched.",
+      "default": true
+    },
+    "showStatus": {
+      "type": "boolean",
+      "title": "Show status",
+      "description": "Show staged, changed, untracked and conflicted files, an operation in progress, and stashes.",
+      "default": true
+    },
+    "placement": {
+      "type": "string",
+      "title": "Where the summary shows",
+      "description": "above-prompt: a row above the prompt with a + button that opens the pane (one row, shared with other mods: only one can draw it). status-line: a line under the prompt that sits beside other mods' lines, with no button (open the pane with /git-status).",
+      "options": [
+        "above-prompt",
+        "status-line"
+      ],
+      "default": "above-prompt"
+    }
+  }
 }

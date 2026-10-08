@@ -2,7 +2,7 @@
 // validator follows `$` only within one file, so everything that runs git
 // lives in register.tsx.)
 
-import type { Branch, LogLine, Remote, Stash, Status, Tag, Worktree } from '../types'
+import type { Band, Branch, LogLine, Operation, Remote, Show, Status, Tag, Worktree } from '../types'
 
 // --- paths -----------------------------------------------------------------
 // Paths are kept with forward slashes. Claude Code reports Windows folders as
@@ -97,6 +97,7 @@ export const BRANCH_FORMAT = [
   '%(committerdate:unix)',
   '%(HEAD)',
   '%(worktreepath)',
+  '%(authorname)',
   '%(subject)',
 ].join('%00')
 
@@ -111,13 +112,14 @@ export function parseBranches(out: string, merged: ReadonlySet<string>): Branch[
   const list: Branch[] = []
   for (const line of out.split('\n')) {
     if (!line) continue
-    const [ref = '', sha = '', upstream = '', track = '', date = '', head = '', worktree = '', ...subject] = line.split('\0')
+    const [ref = '', sha = '', upstream = '', track = '', date = '', head = '', worktree = '', author = '', ...subject] = line.split('\0')
     const isRemote = ref.startsWith('refs/remotes/')
     // origin/HEAD only points at the remote's default branch.
     if (isRemote && ref.endsWith('/HEAD')) continue
     const name = ref.replace(/^refs\/(heads|remotes)\//, '')
     const isCurrent = head === '*'
     list.push({
+      ref,
       name,
       isRemote,
       isCurrent,
@@ -126,6 +128,7 @@ export function parseBranches(out: string, merged: ReadonlySet<string>): Branch[
       ...parseTrack(track),
       isMerged: !isRemote && merged.has(name),
       committedAt: Number(date) * 1000,
+      author,
       subject: subject.join('\0'),
       worktree: worktree && !isCurrent ? toSlash(worktree) : null,
     })
@@ -208,19 +211,7 @@ export function parseRemotes(out: string): Remote[] {
   return [...byName.values()]
 }
 
-// --- stashes, tags, worktrees ------------------------------------------------
-
-export const STASH_FORMAT = '%gd%x00%ct%x00%gs'
-
-export function parseStashes(out: string): Stash[] {
-  return out
-    .split('\n')
-    .filter(Boolean)
-    .map(line => {
-      const [name = '', date = '', ...subject] = line.split('\0')
-      return { name, at: Number(date) * 1000, subject: subject.join('\0') }
-    })
-}
+// --- tags, worktrees ---------------------------------------------------------
 
 export const TAG_FORMAT = '%(refname:short)%00%(creatordate:unix)%00%(contents:subject)'
 
@@ -252,4 +243,75 @@ export function parseWorktrees(out: string): Worktree[] {
     if (tree.path) list.push(tree)
   }
   return list
+}
+
+// --- the branch list ------------------------------------------------------------
+
+/**
+ * Remote branches no local branch tracks: the ones the left list shows under
+ * "Remote", so a branch never appears twice.
+ */
+export function untrackedRemotes(branches: readonly Branch[]): Branch[] {
+  const tracked = new Set(branches.filter(b => !b.isRemote && b.upstream).map(b => b.upstream))
+  return branches.filter(b => b.isRemote && !tracked.has(b.name))
+}
+
+/** The remote a remote branch belongs to: the longest remote name that prefixes it. */
+export function remoteOf(name: string, remotes: readonly Remote[]): Remote | null {
+  let best: Remote | null = null
+  for (const remote of remotes) {
+    if (name.startsWith(`${remote.name}/`) && (!best || remote.name.length > best.name.length)) best = remote
+  }
+  return best
+}
+
+/** The branch's page on a forge, for GitHub-style hosts (`/tree/<branch>`). */
+export function branchWebUrl(web: string, branch: string) {
+  return `${web}/tree/${branch.split('/').map(encodeURIComponent).join('/')}`
+}
+
+// --- the summary row --------------------------------------------------------------
+
+const OPERATION_LABEL: Record<Operation['kind'], string> = {
+  merge: 'MERGING',
+  rebase: 'REBASING',
+  am: 'APPLYING PATCHES',
+  'cherry-pick': 'CHERRY-PICKING',
+  revert: 'REVERTING',
+  bisect: 'BISECTING',
+}
+
+export const opLabel = (op: Operation) =>
+  `${OPERATION_LABEL[op.kind]}${op.step !== undefined && op.total !== undefined ? ` ${op.step}/${op.total}` : ''}`
+
+export const headName = (b: Status) => b.branch ?? (b.sha ? `detached at ${b.sha}` : 'no commits yet')
+
+export const isClean = (b: Status) => b.staged + b.modified + b.untracked + b.conflicted.length === 0
+
+/** The summary as one plain line, for the status line: only the parts `show` asks for. */
+export function summaryText(b: Band, show: Show, now: number): string {
+  const parts: string[] = []
+  if (show.branch) parts.push(`⎇ ${headName(b)}`)
+  if (show.remote) {
+    if (b.upstream) {
+      const sync = `${b.ahead ? ` ↑${b.ahead}` : ''}${b.behind ? ` ↓${b.behind}` : ''}` || ' ✓'
+      parts.push(`→ ${b.upstream}${sync}`)
+      parts.push(b.fetchedAt ? `fetched ${ago(b.fetchedAt, now)}` : 'never fetched')
+    } else if (b.branch) parts.push('no upstream')
+  }
+  if (show.status) {
+    if (b.operation) parts.push(`⚠ ${opLabel(b.operation)}`)
+    if (isClean(b)) parts.push('✓ clean')
+    else {
+      const counts = [
+        b.conflicted.length && `✖${b.conflicted.length} conflicts`,
+        b.staged && `●${b.staged} staged`,
+        b.modified && `✚${b.modified} changed`,
+        b.untracked && `?${b.untracked} new`,
+      ].filter(Boolean)
+      parts.push(counts.join(' '))
+    }
+    if (b.stashes) parts.push(`≡${b.stashes} stashed`)
+  }
+  return parts.join(' · ')
 }

@@ -117,7 +117,8 @@ declare module 'claude-code' {
       detail: BranchDetail | null
       error: string
       isLoading: boolean
-      theme: Theme
+      /** Set by the ☀/☾ toggle; null follows the Claude Code theme setting. */
+      theme: Theme | null
     }
   }
 }

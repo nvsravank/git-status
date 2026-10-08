@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Band, Branch, BranchDetail, Operation, Repo, RepoInfo, Show, Stash, Tab, Theme } from '../types'
+import type { Band, Branch, BranchDetail, LogLine, Operation, Repo, RepoInfo, Show, Stash, Tab, Theme } from '../types'
 import {
   BRANCH_FORMAT,
   LOG_FORMAT,
@@ -826,6 +826,70 @@ export const register: Register = (on, options) => {
       )
     }
 
+    // History as a table: graph and ↑/↓ | hash | labels and message | author | age.
+    // Every column but the message is sized to its longest entry (with a cap), so the
+    // message column takes what is left and each row lines up with the ones above it.
+    const historyTable = (log: readonly LogLine[]) => {
+      const commits = log.flatMap(line => (line.commit ? [line.commit] : []))
+      const longest = (values: string[], min: number, max: number) =>
+        Math.min(max, Math.max(min, ...values.map(v => v.length)))
+      // The graph glyphs, then a space and the ↑/↓ marker when any commit has one.
+      const hasSide = commits.some(one => one.side !== null)
+      const graphWidth = longest(log.map(line => line.graph.trimEnd()), 1, 16) + (hasSide ? 2 : 0) + 1
+      const shaWidth = 8
+      const authorWidth = longest(commits.map(one => one.author), 6, 18) + 2
+      const ageWidth = longest(commits.map(one => ago(one.at, now)), 3, 9)
+      const cell = (width: number, child: JSX.Element) => (
+        <Box width={width} flexShrink={0}>
+          {child}
+        </Box>
+      )
+      return (
+        <Box flexDirection="column">
+          <Box>
+            {cell(graphWidth, <Text> </Text>)}
+            {cell(shaWidth, <Text dimColor>Commit</Text>)}
+            <Box flexGrow={1} flexShrink={1}>
+              <Text dimColor>Message</Text>
+            </Box>
+            {cell(authorWidth, <Text dimColor>Author</Text>)}
+            {cell(ageWidth, <Text dimColor>When</Text>)}
+          </Box>
+          {log.map((line, i) => {
+            const one = line.commit
+            const graph = line.graph.trimEnd()
+            if (!one)
+              return (
+                <Text key={`graph-${i}`} color={c.graph} wrap="truncate-end">
+                  {graph}
+                </Text>
+              )
+            return (
+              <Box key={one.sha}>
+                {cell(
+                  graphWidth,
+                  <Text wrap="truncate-end">
+                    <Text color={c.graph}>{graph}</Text>
+                    {one.side === 'ahead' && <Text color={c.good}> ↑</Text>}
+                    {one.side === 'behind' && <Text color={c.warn}> ↓</Text>}
+                  </Text>,
+                )}
+                {cell(shaWidth, <Text color={c.sha}>{one.sha}</Text>)}
+                <Box flexGrow={1} flexShrink={1} paddingRight={2}>
+                  <Text wrap="truncate-end">
+                    {one.refs && <Text color={c.refs}>({one.refs}) </Text>}
+                    {one.subject}
+                  </Text>
+                </Box>
+                {cell(authorWidth, <Text dimColor wrap="truncate-end">{one.author}</Text>)}
+                {cell(ageWidth, <Text dimColor wrap="truncate-end">{ago(one.at, now)}</Text>)}
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+
     const history = (br: Branch) => {
       if (!more || more.ref !== br.ref) return none('Reading the history…')
       return (
@@ -839,26 +903,7 @@ export const register: Register = (on, options) => {
             </Box>
           )}
           {more.log.length === 0 && none('No commits.')}
-          {more.log.map((line, i) =>
-            line.commit ? (
-              <Text key={line.commit.sha} wrap="truncate-end">
-                <Text color={c.graph}>{line.graph}</Text>
-                {line.commit.side === 'ahead' && <Text color={c.good}>↑</Text>}
-                {line.commit.side === 'behind' && <Text color={c.warn}>↓</Text>}
-                <Text color={c.sha}>{line.commit.sha}</Text>
-                {line.commit.refs && <Text color={c.refs}> ({line.commit.refs})</Text>}
-                <Text> {line.commit.subject}</Text>
-                <Text dimColor>
-                  {' '}
-                  · {line.commit.author}, {ago(line.commit.at, now)}
-                </Text>
-              </Text>
-            ) : (
-              <Text key={`graph-${i}`} color={c.graph}>
-                {line.graph}
-              </Text>
-            ),
-          )}
+          {more.log.length > 0 && historyTable(more.log)}
           {more.log.length >= LOG_COUNT && <Box marginTop={1}>{none(`The newest ${LOG_COUNT} commits.`)}</Box>}
         </Box>
       )

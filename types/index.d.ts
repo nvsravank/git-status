@@ -1,7 +1,8 @@
-/** The palette the pane draws in; plugins aren't told the app's theme. */
-export type Theme = 'light' | 'dark'
+/** The tabs on the right of the pane, for the branch picked on the left. */
+export type Tab = 'overview' | 'history' | 'tags' | 'worktrees' | 'stashes'
 
-export type Tab = 'overview' | 'branches' | 'history' | 'remotes' | 'stashes' | 'tags' | 'worktrees'
+/** Which parts of the summary row show, from the mod's preferences. */
+export type Show = { branch: boolean; remote: boolean; status: boolean }
 
 /** A repository the pane can show: the one holding the session folder, or one inside it. */
 export type Repo = { name: string; path: string }
@@ -25,7 +26,7 @@ export type Status = {
   conflicted: string[]
 }
 
-/** Everything the one-row band shows for the session folder's repo. */
+/** Everything the summary row shows for the session folder's repo. */
 export type Band = Status & {
   repoName: string
   operation: Operation | null
@@ -34,6 +35,9 @@ export type Band = Status & {
 }
 
 export type Branch = {
+  /** The full ref, `refs/heads/x` or `refs/remotes/origin/x`: what the pane selects by. */
+  ref: string
+  /** `x` for a local branch, `origin/x` for a remote one. */
   name: string
   isRemote: boolean
   isCurrent: boolean
@@ -46,6 +50,7 @@ export type Branch = {
   /** Fully merged into the default branch. */
   isMerged: boolean
   committedAt: number
+  author: string
   subject: string
   /** Where it is checked out, if in another worktree. */
   worktree: string | null
@@ -59,13 +64,14 @@ export type LogLine = {
 
 export type Remote = { name: string; fetch: string; push: string; web: string | null }
 
-export type Stash = { name: string; at: number; subject: string }
-
 export type Tag = { name: string; at: number; subject: string }
+
+/** A stash, and the branch it was made on (null when HEAD was detached). */
+export type Stash = { name: string; at: number; subject: string; branch: string | null }
 
 export type Worktree = { path: string; branch: string | null; sha: string; isBare: boolean; isLocked: boolean; isPrunable: boolean }
 
-/** Everything the pane shows for one repository, read in one go. */
+/** What the pane knows about one repository: its branches and everything shared by them. */
 export type RepoInfo = {
   path: string
   /** The main checkout, when this is a linked worktree of it. */
@@ -74,28 +80,40 @@ export type RepoInfo = {
   defaultBranch: string | null
   band: Band
   branches: Branch[]
-  log: LogLine[]
   remotes: Remote[]
-  stashes: Stash[]
-  tags: Tag[]
-  latestTag: string | null
   worktrees: Worktree[]
+  /** Every stash in the repo, newest first; the pane shows each branch its own. */
+  stashes: Stash[]
   readAt: number
+}
+
+/** What the right side shows for the branch picked on the left. */
+export type BranchDetail = {
+  ref: string
+  log: LogLine[]
+  /** Tags reachable from the branch, newest first. */
+  tags: Tag[]
+  /** How many tags are in the branch's history; `tags` holds the newest TAG_COUNT of them. */
+  tagCount: number
+  /** Commits the branch has that the default branch hasn't, and the other way round. */
+  vsDefault: { ahead: number; behind: number } | null
 }
 
 declare module 'claude-code' {
   interface PluginState {
     'git-status': {
-      /** The session folder's repo, for the band; null when the folder isn't in one. */
+      /** The session folder's repo, for the summary row; null when the folder isn't in one. */
       band: Band | null
       repos: Repo[]
       /** Path of the repo the pane shows. */
       repo: string
+      /** Full ref of the branch picked on the left. */
+      branch: string
       tab: Tab
       info: RepoInfo | null
+      detail: BranchDetail | null
       error: string
       isLoading: boolean
-      theme: Theme
     }
   }
 }

@@ -1,52 +1,65 @@
 # git-status
 
-A read-only git dashboard for Claude Code. A one-line row above the prompt shows where your repo stands, and **`/git-status`** opens a pane with branches, history, remotes, stashes, tags and worktrees. It never changes your repo and never writes a file.
+A read-only git dashboard for Claude Code. A summary row shows where your repo stands, and **`/git-status`** opens a pane listing every branch, with each branch's overview, history, tags and worktrees. It never changes your repo and never writes a file.
 
 Diffs aren't shown here: [multirepo-diff-mod](https://github.com/nvsravank/multirepo-diff-mod) covers those.
 
-## The row above the prompt
+## The summary row
 
-The row appears only while the session's folder is inside a git repository. Anywhere else, it stays hidden.
+The summary shows only while the session's folder is inside a git repository. Anywhere else it stays hidden.
 
 ```
-⎇ main → origin/main ↑2 ↓1 · ⚠ REBASING 3/7 · ●3 staged ✚5 changed ?1 new · ≡2 stashed · fetched 2h ago   [ + ]
+⎇ main → origin/main ↑2 ↓1 · fetched 2h ago · ⚠ REBASING 3/7 ●3 staged ✚5 changed ?1 new · ≡2 stashed   [ + ]
 ```
 
 - **Branch**, or `detached at <sha>`, or `no commits yet`.
-- **Upstream** with commits to push (↑) and to pull (↓), `✓ in sync`, or `(no upstream)`.
-- **In progress**: a merge, rebase (with its step), patch apply, cherry-pick, revert or bisect left half done.
-- **Working tree**: conflicts, staged, changed and untracked counts, or `✓ clean`.
-- **Stashes** and **when the repo was last fetched**. Ahead/behind is only as fresh as that last fetch, and this mod never fetches.
+- **Remote**: the upstream with commits to push (↑) and to pull (↓), or `(no upstream)`, plus when the repo was last fetched. Ahead/behind is only as fresh as that last fetch, and this mod never fetches.
+- **Status**: an operation in progress (merge, rebase with its step, patch apply, cherry-pick, revert, bisect), conflicted, staged, changed and untracked files, or `✓ clean`, and stashes.
 - **`[ + ]`** opens the pane.
 
-It updates after each of Claude's tool calls, at the end of each turn, and every 15 seconds for changes you make elsewhere.
+It updates half a second after Claude's tool calls and turns (a burst of calls makes one update), on a timer of its own, so Claude never waits for git. For changes you make elsewhere it also checks every 15 seconds, slowing to every 4 minutes while nothing changes; Claude's next tool call brings it back to 15 seconds.
+
+## Preferences
+
+Set them in `/config` (or under `pluginConfigs` → `git-status` in settings):
+
+| Preference | Default | |
+| --- | --- | --- |
+| Show branch | on | The checked-out branch |
+| Show remote | on | Upstream, ↑/↓ and last fetch |
+| Show status | on | Files, operation in progress, stashes |
+| Where the summary shows | `above-prompt` | `above-prompt` is the row above the prompt, with the `[ + ]` button. Only one mod can draw that row at a time. `status-line` is a line under the prompt that sits beside other mods' lines; the `[ + ]` button moves to the right end of the prompt footer, after its mode labels |
+
+With all three parts off, the row above the prompt still shows `Git status [ + ]`.
 
 ## The pane: `/git-status`
 
-The session's folder doesn't have to be the repository. The **Repository** picker lists:
+The session's folder doesn't have to be the repository. The **Repository** picker lists the repository the folder is in (even from deep inside it) and every repository directly inside the folder.
 
-- the repository the folder is in, even when the folder is deep inside it, and
-- every repository directly inside the folder (handy for a folder of projects).
+**On the left**, every branch once:
 
-Tabs:
+- **Local**: your branches, the checked-out one first (●), with ↑/↓ and `(gone)` when the upstream was deleted. Branches already merged into the default branch are dimmed.
+- **Remote only**: remote branches that no local branch tracks. A remote branch you track shows as its local branch instead, so nothing is listed twice.
+
+**On the right**, the branch you pick:
 
 | Tab | Shows |
 | --- | --- |
-| **Overview** | Folder, linked-worktree origin, branch and commit, tracking and ahead/behind, last fetch, working-tree counts, default branch, latest tag, stash count, remotes, conflicted files, and how to finish an operation in progress |
-| **Branches** | Local branches with upstream, ↑/↓, `gone on remote`, `merged` into the default branch, the worktree each is checked out in, age and last commit. Remote branches, newest first |
-| **History** | The commit graph of HEAD and its upstream (60 commits), with ↑ marking commits not pushed yet and ↓ commits not pulled yet |
-| **Remotes** | Fetch and push URLs (any user name or password removed) and a link to the web page on GitHub, GitLab and similar hosts |
-| **Stashes** | Each stash, its age and message |
-| **Tags** | The newest 50 tags |
-| **Worktrees** | Every worktree of the repository, its branch, and whether it is locked or missing |
+| **Overview** | Last commit, tracking and ↑/↓ (or "deleted on the remote"), commits ahead of and behind the default branch, merged or not, the worktree it's checked out in, its remote and a link to the branch on GitHub, GitLab and similar hosts, last fetch, and separate Tags, Stashes and Worktrees counts. For the checked-out branch, also the working tree, conflicted files and how to finish an operation in progress |
+| **History** | The branch's commit graph with its upstream (60 commits), ↑ marking commits not pushed yet and ↓ commits not pulled yet |
+| **Tags (n)** | Tags in the branch's history, newest 50 |
+| **Worktrees (n)** | Every worktree of the repository, with the ones that have this branch checked out marked |
+| **Stashes (n)** | Stashes made while this branch was checked out |
 
-`↻` re-reads the repository. `☾`/`☀` switches light and dark. Plugins aren't told the app's theme, and the choice lasts for the session only, because remembering it would mean writing a file.
+A tab shows its count, and a tab with nothing in it is left out: Tags when the branch's history has no tags, Worktrees when there's only the main checkout, Stashes when none were made on the branch.
+
+`↻` re-reads the repository. Colors follow the app's light or dark theme by themselves. Below 80 columns the branch list sits above the details.
 
 ## What it runs and changes
 
 **It sends nothing anywhere and makes no network calls.** It doesn't read the conversation. Its `tool.call` and `turn.complete` hooks pass every call through unchanged and only schedule a re-read of the repository.
 
-**It writes nothing.** No files, no settings and no stored values. Git runs with `--no-optional-locks` (and `GIT_OPTIONAL_LOCKS=0`), so `git status` doesn't refresh `.git/index`. It also runs with `core.fsmonitor=false`, so no file-watcher daemon starts. Nothing ever fetches, so remote-tracking refs stay as they are.
+**It writes nothing.** No files, no settings and no stored values (your preferences are kept by Claude Code's own settings). Git runs with `--no-optional-locks` (and `GIT_OPTIONAL_LOCKS=0`), so `git status` doesn't refresh `.git/index`. It also runs with `core.fsmonitor=false`, so no file-watcher daemon starts. Nothing ever fetches, so remote-tracking refs stay as they are.
 
 Programs it runs (all `git`, in the repository's folder):
 
@@ -54,14 +67,15 @@ Programs it runs (all `git`, in the repository's folder):
 | --- | --- |
 | `git rev-parse --show-toplevel --absolute-git-dir --git-common-dir --git-path FETCH_HEAD` | Find the repository a folder is in |
 | `git status --porcelain=v2 --branch --show-stash -z` | Branch, upstream, ahead/behind, file counts, stash count |
+| `git rev-list --left-right --count <branch>...<default>` | A branch's commits ahead of and behind the default branch |
 | `git for-each-ref refs/heads refs/remotes` (and `--merged`) | Branches, their upstreams and whether they're merged |
 | `git symbolic-ref refs/remotes/origin/HEAD`, `git rev-parse --verify` | The default branch |
-| `git rev-list --left-right HEAD...@{u}` | Which commits are unpushed or not yet pulled |
-| `git log --graph -n60` | History |
+| `git rev-list --left-right <branch>...<upstream>` | Which commits are unpushed or not yet pulled |
+| `git log --graph -n60 <branch> <upstream>` | History |
 | `git remote -v` | Remotes |
-| `git stash list` | Stashes |
-| `git for-each-ref refs/tags`, `git describe --tags --abbrev=0` | Tags |
+| `git for-each-ref --merged=<branch> refs/tags` | Tags in a branch's history |
 | `git worktree list --porcelain` | Worktrees |
+| `git stash list` | Stashes, only when `git status` reports some |
 
 Files it reads: what git keeps for an operation in progress (`MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`), the date of `FETCH_HEAD`, and the folder listing used to find repositories inside it.
 

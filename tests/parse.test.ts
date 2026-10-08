@@ -7,12 +7,17 @@ import {
   parseLeftRight,
   parseLog,
   parseRemotes,
+  parseStashes,
   parseStatus,
   parseTrack,
   parseWorktrees,
+  remoteOf,
   samePath,
+  summaryText,
+  untrackedRemotes,
   webUrl,
 } from '../hooks/parse'
+import type { Band } from '../types'
 
 const NUL = '\0'
 
@@ -68,15 +73,15 @@ describe('branches', () => {
   test('local and remote refs, origin/HEAD skipped, worktree only when elsewhere', () => {
     const line = (...fields: string[]) => fields.join(NUL)
     const out = [
-      line('refs/heads/main', 'abc1234', 'origin/main', 'ahead 1', '1700000000', '*', '/repo', 'Fix it'),
-      line('refs/heads/old', 'def5678', 'origin/old', 'gone', '1600000000', ' ', '', 'Old work'),
-      line('refs/heads/side', '0001111', '', '', '1650000000', ' ', '/repo-side', 'Side'),
-      line('refs/remotes/origin/HEAD', 'abc1234', '', '', '1700000000', ' ', '', 'Fix it'),
-      line('refs/remotes/origin/main', 'abc1234', '', '', '1700000000', ' ', '', 'Fix it'),
+      line('refs/heads/main', 'abc1234', 'origin/main', 'ahead 1', '1700000000', '*', '/repo', 'Ann', 'Fix it'),
+      line('refs/heads/old', 'def5678', 'origin/old', 'gone', '1600000000', ' ', '', 'Ann', 'Old work'),
+      line('refs/heads/side', '0001111', '', '', '1650000000', ' ', '/repo-side', 'Ann', 'Side'),
+      line('refs/remotes/origin/HEAD', 'abc1234', '', '', '1700000000', ' ', '', 'Ann', 'Fix it'),
+      line('refs/remotes/origin/main', 'abc1234', '', '', '1700000000', ' ', '', 'Ann', 'Fix it'),
     ].join('\n')
     const list = parseBranches(out, new Set(['main', 'old']))
     expect(list.map(b => b.name)).toEqual(['main', 'old', 'side', 'origin/main'])
-    expect(list[0]).toMatchObject({ isCurrent: true, ahead: 1, worktree: null, isMerged: true, committedAt: 1700000000000 })
+    expect(list[0]).toMatchObject({ ref: 'refs/heads/main', author: 'Ann', subject: 'Fix it', isCurrent: true, ahead: 1, worktree: null, isMerged: true, committedAt: 1700000000000 })
     expect(list[1]).toMatchObject({ isGone: true, isMerged: true })
     expect(list[2]).toMatchObject({ upstream: null, worktree: '/repo-side', isMerged: false })
     expect(list[3]).toMatchObject({ isRemote: true, isMerged: false })
@@ -155,5 +160,84 @@ describe('helpers', () => {
   test('samePath ignores separators, and case on Windows', () => {
     expect(samePath('C:\\Users\\me\\repo', 'c:/users/me/repo/')).toBe(true)
     expect(samePath('/Users/me/Repo', '/Users/me/repo')).toBe(false)
+  })
+})
+
+describe('the branch list', () => {
+  const line = (...fields: string[]) => fields.join(NUL)
+  const out = [
+    line('refs/heads/main', 'a', 'origin/main', '', '1', '*', '', 'Ann', 'm'),
+    line('refs/heads/topic', 'b', 'origin/topic', '', '2', ' ', '', 'Ann', 't'),
+    line('refs/heads/local-only', 'c', '', '', '3', ' ', '', 'Ann', 'l'),
+    line('refs/remotes/origin/main', 'a', '', '', '1', ' ', '', 'Ann', 'm'),
+    line('refs/remotes/origin/topic', 'b', '', '', '2', ' ', '', 'Ann', 't'),
+    line('refs/remotes/origin/someone-else', 'd', '', '', '4', ' ', '', 'Bo', 's'),
+    line('refs/remotes/fork/main', 'e', '', '', '5', ' ', '', 'Bo', 'f'),
+  ].join('\n')
+
+  test('remote branches tracked by a local branch are left out', () => {
+    expect(untrackedRemotes(parseBranches(out, new Set())).map(b => b.name)).toEqual(['origin/someone-else', 'fork/main'])
+  })
+
+  test('the remote a branch belongs to, longest name first', () => {
+    const remotes = [
+      { name: 'origin', fetch: '', push: '', web: null },
+      { name: 'origin/mirror', fetch: '', push: '', web: null },
+    ]
+    expect(remoteOf('origin/x', remotes)!.name).toBe('origin')
+    expect(remoteOf('origin/mirror/x', remotes)!.name).toBe('origin/mirror')
+    expect(remoteOf('elsewhere/x', remotes)).toBe(null)
+  })
+})
+
+describe('summaryText', () => {
+  const band: Band = {
+    repoName: 'r',
+    branch: 'main',
+    sha: 'abc1234',
+    upstream: 'origin/main',
+    ahead: 2,
+    behind: 1,
+    stashes: 1,
+    staged: 3,
+    modified: 0,
+    untracked: 1,
+    conflicted: [],
+    operation: { kind: 'rebase', step: 3, total: 7 },
+    fetchedAt: null,
+  }
+  const all = { branch: true, remote: true, status: true }
+
+  test('every part', () => {
+    expect(summaryText(band, all, 0)).toBe(
+      '⎇ main · → origin/main ↑2 ↓1 · never fetched · ⚠ REBASING 3/7 · ●3 staged ?1 new · ≡1 stashed',
+    )
+  })
+
+  test('only the parts the preferences ask for', () => {
+    expect(summaryText(band, { branch: true, remote: false, status: false }, 0)).toBe('⎇ main')
+    expect(summaryText(band, { branch: false, remote: true, status: false }, 0)).toBe('→ origin/main ↑2 ↓1 · never fetched')
+    expect(summaryText({ ...band, upstream: null }, { branch: false, remote: true, status: false }, 0)).toBe('no upstream')
+    expect(summaryText(band, { branch: false, remote: false, status: false }, 0)).toBe('')
+  })
+
+  test('a clean tree in sync', () => {
+    const clean = { ...band, ahead: 0, behind: 0, staged: 0, untracked: 0, stashes: 0, operation: null }
+    expect(summaryText(clean, { branch: false, remote: true, status: true }, 0)).toBe('→ origin/main ✓ · never fetched · ✓ clean')
+  })
+})
+
+describe('stashes', () => {
+  test('the branch each stash was made on', () => {
+    const out = [
+      ['stash@{0}', '1700000000', 'WIP on main: abc1234 Fix it'].join(NUL),
+      ['stash@{1}', '1600000000', 'On feature/x: before rebase'].join(NUL),
+      ['stash@{2}', '1500000000', 'WIP on (no branch): def5678 Detached'].join(NUL),
+    ].join('\n')
+    expect(parseStashes(out).map(s => [s.name, s.branch, s.at])).toEqual([
+      ['stash@{0}', 'main', 1700000000000],
+      ['stash@{1}', 'feature/x', 1600000000000],
+      ['stash@{2}', null, 1500000000000],
+    ])
   })
 })

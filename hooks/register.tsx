@@ -740,7 +740,7 @@ export const register: Register = (on, options) => {
           {row(
             'Last commit',
             <Text wrap="wrap">
-              <Text color={c.sha}>{br.sha}</Text> {br.subject}
+              <Text>{br.sha}</Text> {br.subject}
               <Text dimColor>
                 {' '}
                 · {br.author}, {ago(br.committedAt, now)}
@@ -879,7 +879,7 @@ export const register: Register = (on, options) => {
                       {one.side === 'behind' && <Text color={c.warn}>{graph ? ' ↓' : '↓'}</Text>}
                     </Text>,
                   )}
-                {cell(shaWidth, <Text color={c.sha}>{one.sha}</Text>)}
+                {cell(shaWidth, <Text>{one.sha}</Text>)}
                 <Box flexGrow={1} flexShrink={1} paddingRight={2}>
                   <Text wrap="truncate-end">
                     {one.refs && <Text color={c.refs}>({one.refs}) </Text>}
@@ -966,7 +966,7 @@ export const register: Register = (on, options) => {
               <Text wrap="truncate-end">
                 {'    '}
                 {w.isBare ? <Text dimColor>bare</Text> : <Text>{w.branch ?? `detached at ${w.sha}`}</Text>}
-                {!w.isBare && <Text color={c.sha}> {w.sha}</Text>}
+                {!w.isBare && <Text> {w.sha}</Text>}
                 {w.isLocked && <Text color={c.warn}> locked</Text>}
                 {w.isPrunable && <Text color={c.bad}> missing (prunable)</Text>}
               </Text>

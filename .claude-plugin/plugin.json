@@ -1,0 +1,12 @@
+{
+  "name": "git-status",
+  "displayName": "Git Status",
+  "version": "0.1.0",
+  "description": "A read-only git dashboard: branch, upstream and ahead/behind above the prompt, and /git-status for branches, history, remotes, stashes, tags and worktrees of every repo in your folder",
+  "author": { "name": "Sravan", "url": "https://github.com/nvsravank" },
+  "homepage": "https://github.com/nvsravank/git-status",
+  "repository": "https://github.com/nvsravank/git-status",
+  "license": "MIT",
+  "keywords": ["git", "status", "branches", "remotes", "history", "read-only"],
+  "types": "./types/index.d.ts"
+}
